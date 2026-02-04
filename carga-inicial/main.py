@@ -1,5 +1,6 @@
 import random
 import requests
+from datetime import date
 
 from faker import Faker
 
@@ -28,6 +29,23 @@ REGION_WEIGHTS = {
     "GO": 3,
 }
 
+# Configuração de Gênero 
+# 1 = Masculino, 2 = Feminino (padrão Magento)
+GENDER_WEIGHTS = {
+    1: 45,  # 45% Masculino
+    2: 55,  # 55% Feminino
+}
+
+# Configuração de Faixa Etária 
+AGE_DISTRIBUTION = {
+    (18, 24): 15,  # 15% - Jovens adultos
+    (25, 34): 30,  # 30% - Millennials (maior poder de compra online)
+    (35, 44): 25,  # 25% - Geração X
+    (45, 54): 15,  # 15% - Adultos maduros
+    (55, 65): 10,  # 10% - Pré-aposentadoria
+    (66, 80): 5,   # 5%  - Idosos
+}
+
 # --- SETUP ---
 fake = Faker(LOCALE)
 headers = {"Authorization": f"Bearer {ADMIN_TOKEN}", "Content-Type": "application/json"}
@@ -41,6 +59,46 @@ class MagentoGeoSeeder:
 
     def log(self, msg):
         print(f"[LOG] {msg}")
+
+    def _get_weighted_gender(self):
+        """
+        Retorna gênero baseado na distribuição configurada. 
+        1 = Masculino, 2 = Feminino (padrão Magento)
+        """
+        population = []
+        for gender_id, weight in GENDER_WEIGHTS.items():
+            population. extend([gender_id] * weight)
+        return random.choice(population)
+
+    def _get_weighted_dob(self):
+        """
+        Gera data de nascimento baseada na distribuição etária configurada. 
+        Retorna string no formato YYYY-MM-DD (padrão Magento).
+        """
+        # Seleciona faixa etária com peso
+        population = []
+        for age_range, weight in AGE_DISTRIBUTION.items():
+            population.extend([age_range] * weight)
+        
+        min_age, max_age = random.choice(population)
+        
+        # Calcula ano de nascimento baseado na idade
+        today = date.today()
+        age = random.randint(min_age, max_age)
+        birth_year = today.year - age
+        
+        # Gera mês e dia aleatórios
+        birth_month = random.randint(1, 12)
+        # Trata fevereiro e meses com 30 dias
+        if birth_month == 2:
+            max_day = 28
+        elif birth_month in [4, 6, 9, 11]:
+            max_day = 30
+        else:
+            max_day = 31
+        birth_day = random.randint(1, max_day)
+        
+        return f"{birth_year}-{birth_month:02d}-{birth_day:02d}"
 
     def fetch_brazil_regions(self):
         """
@@ -94,7 +152,18 @@ class MagentoGeoSeeder:
     def create_customers(self, count):
         # Cria clientes (mesma lógica anterior, omitida para brevidade)
         self.log(f"Criando {count} clientes...")
-        for _ in range(count):
+        for i in range(count):
+
+            # Gera dados demográficos
+            gender = self._get_weighted_gender()
+            dob = self._get_weighted_dob()
+            
+            # Gera nome consistente com o gênero
+            if gender == 1:
+                first_name = fake.first_name_male()
+            else:
+                first_name = fake.first_name_female()
+
             payload = {
                 "customer": {
                     "email": fake.unique.email(),
@@ -102,6 +171,8 @@ class MagentoGeoSeeder:
                     "lastname": fake.last_name(),
                     "store_id": 1,
                     "website_id": 1,
+                    "dob" : dob,
+                    "gender" : gender,
                 },
                 "password": "Password123!",
             }
@@ -112,7 +183,12 @@ class MagentoGeoSeeder:
                 verify=False,
             )
             if r.status_code == 200:
-                self.customer_ids.append(r.json()["id"])
+                customer_data = r.json()
+                self.customer_ids.append(customer_data["id"])
+                gender_label = "M" if gender == 1 else "F"
+                self. log(f"  [{i + 1}] Cliente #{customer_data['id']} | {first_name} | DOB: {dob} | Gênero: {gender_label}")
+            else:
+                self.log(f"  Erro ao criar cliente:  {r.text}")
 
     # ... (Métodos _create_cart_for_customer e _add_items_to_cart mantêm-se iguais) ...
     def _create_cart_for_customer(self, customer_id):
